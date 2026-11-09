@@ -1,0 +1,11 @@
+# Keep the image small and free of secrets. .venv is excluded because it holds macOS binaries
+# that would not run inside the Linux container; the image builds its own.
+.venv/
+.git/
+.env
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+loadtest/
+tests/

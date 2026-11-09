@@ -1,0 +1,62 @@
+# Values like ${POSTGRES_USER} are read from the .env file next to this one.
+
+# Shared settings for every service built from our Dockerfile (api, worker, receiver).
+x-app: &app
+  build: .
+  # If a process crashes (e.g. the worker loses Redis), Docker starts it again.
+  restart: unless-stopped
+  environment:
+    # Inside Docker, hosts are the service names below, not "localhost".
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    REDIS_URL: redis://redis:6379/0
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  api:
+    <<: *app
+    ports:
+      - "8000:8000"
+
+  worker:
+    <<: *app
+    command: ["arq", "app.worker.WorkerSettings"]
+
+  receiver:
+    <<: *app
+    command: ["uvicorn", "receiver.main:app", "--host", "0.0.0.0", "--port", "9000"]
+    ports:
+      - "9000:9000"
+    depends_on: []  # the mock receiver doesn't need the database or Redis
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"  # exposed so tests and tools on your Mac can connect
+    volumes:
+      - pgdata:/var/lib/postgresql/data  # keeps data across restarts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:
