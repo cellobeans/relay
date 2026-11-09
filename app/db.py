@@ -1,5 +1,7 @@
 from collections.abc import AsyncIterator
+from typing import Annotated
 
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -15,3 +17,7 @@ async def get_session() -> AsyncIterator[AsyncSession]:
     """FastAPI dependency: one session per request, always closed afterwards."""
     async with SessionLocal() as session:
         yield session
+
+
+# Shorthand used in route signatures: `session: SessionDep`.
+SessionDep = Annotated[AsyncSession, Depends(get_session)]

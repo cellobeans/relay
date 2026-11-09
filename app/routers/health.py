@@ -1,21 +1,13 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Request, Response, status
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import get_session
+from app.db import SessionDep
 
 router = APIRouter()
 
 
 @router.get("/healthz")
-async def healthz(
-    request: Request,
-    response: Response,
-    # FastAPI calls get_session() per request and passes the session in.
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> dict:
+async def healthz(request: Request, response: Response, session: SessionDep) -> dict:
     checks = {"database": "ok", "redis": "ok"}
 
     try:

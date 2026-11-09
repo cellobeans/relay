@@ -63,6 +63,8 @@ Dockerfile
 - `curl localhost:8000/healthz`: check the API can reach Postgres and Redis
 - `docker compose logs -f api worker`: follow logs
 - `docker compose down`: stop everything (add `-v` to also wipe the database)
+- `docker compose up --build -d --wait`: rebuild after code changes (the image copies the code, so edits need a rebuild)
+- `uv run alembic revision --autogenerate -m "<what changed>"`: write a migration from model changes (runs on the Mac so the file lands in the repo; read it before applying)
 - `docker compose exec api alembic upgrade head`: apply migrations
 - `uv run pytest`: run tests
 - `uv run ruff check . && uv run ruff format .`: lint and format

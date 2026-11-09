@@ -9,6 +9,7 @@ x-app: &app
     # Inside Docker, hosts are the service names below, not "localhost".
     DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     REDIS_URL: redis://redis:6379/0
+    ADMIN_TOKEN: ${ADMIN_TOKEN}
   depends_on:
     postgres:
       condition: service_healthy

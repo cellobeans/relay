@@ -1,0 +1,42 @@
+"""Shapes of request bodies and responses. FastAPI validates input against these (422 if wrong)."""
+
+import uuid
+from datetime import datetime
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+
+EventType = Annotated[str, Field(min_length=1, max_length=100)]
+
+
+class TenantCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class TenantCreated(BaseModel):
+    id: uuid.UUID
+    name: str
+    api_key: str = Field(description="Shown only once. Relay stores only its hash.")
+    created_at: datetime
+
+
+class EndpointCreate(BaseModel):
+    url: HttpUrl  # rejects anything that isn't a valid http(s) URL
+    event_types: list[EventType] = Field(min_length=1)
+
+
+class EndpointOut(BaseModel):
+    # Lets Pydantic read fields straight off a SQLAlchemy object (endpoint.url, endpoint.id...).
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    url: str
+    event_types: list[str]
+    active: bool
+    created_at: datetime
+
+
+class EndpointCreated(EndpointOut):
+    """Same as EndpointOut plus the signing secret, returned only from the create call."""
+
+    secret: str

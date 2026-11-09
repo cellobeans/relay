@@ -9,6 +9,8 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://relay:relay@localhost:5432/relay"
     redis_url: str = "redis://localhost:6379/0"
+    # No default on purpose: the app refuses to start without one, so it's never left guessable.
+    admin_token: str
 
 
 settings = Settings()
