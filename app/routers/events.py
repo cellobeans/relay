@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Response, status
+from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 from sqlalchemy import any_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from app.auth import CurrentTenant
 from app.db import SessionDep
 from app.models import DeliveryAttempt, Endpoint, Event, Tenant
 from app.schemas import DeliveryAttemptOut, EventCreate, EventOut
+from app.services.delivery import enqueue_delivery
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -44,6 +45,7 @@ async def create_event(
     body: EventCreate,
     tenant: CurrentTenant,
     session: SessionDep,
+    request: Request,
     response: Response,
     idempotency_key: Annotated[str, Header(min_length=1, max_length=255)],
 ) -> EventOut:
@@ -80,9 +82,15 @@ async def create_event(
             body.type == any_(Endpoint.event_types),  # SQL: type = ANY(event_types)
         )
     )
-    session.add_all(DeliveryAttempt(event_id=new_id, endpoint_id=e.id) for e in endpoints)
+    attempts = [DeliveryAttempt(event_id=new_id, endpoint_id=e.id) for e in endpoints]
+    session.add_all(attempts)
     # The event and its deliveries commit together: either all exist or none do.
     await session.commit()
+
+    # Enqueue only after the commit, so the worker never picks up a job for a row it can't see
+    # yet. Known gap: if Redis fails right here, the rows stay pending with no job.
+    for attempt in attempts:
+        await enqueue_delivery(request.app.state.arq, attempt.id)
 
     event = await session.get(Event, new_id)
     return await _event_out(session, event)

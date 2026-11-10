@@ -31,7 +31,12 @@ services:
     command: ["uvicorn", "receiver.main:app", "--host", "0.0.0.0", "--port", "9000"]
     ports:
       - "9000:9000"
-    depends_on: []  # the mock receiver doesn't need the database or Redis
+    # Replaces the shared environment: the receiver plays a customer's server, so it gets only
+    # the signing secret, never Relay's database or Redis.
+    environment:
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}  # set by scripts/demo_setup.sh
+      FAIL_RATE: ${FAIL_RATE:-0}  # percent of requests to fail on purpose, e.g. FAIL_RATE=50
+    depends_on: []
 
   postgres:
     image: postgres:16

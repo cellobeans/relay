@@ -100,3 +100,6 @@ class DeliveryAttempt(Base):
     # For a pending retry: the earliest time it may run. Empty for a first attempt (run now).
     next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # When the HTTP call finished. completed_at minus the event's created_at is the end-to-end
+    # delivery latency the load test reports.
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

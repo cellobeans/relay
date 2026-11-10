@@ -16,7 +16,7 @@ async def healthz(request: Request, response: Response, session: SessionDep) -> 
         checks["database"] = f"error: {exc.__class__.__name__}"
 
     try:
-        await request.app.state.redis.ping()
+        await request.app.state.arq.ping()
     except Exception as exc:
         checks["redis"] = f"error: {exc.__class__.__name__}"
 
