@@ -24,7 +24,8 @@ secret=$(echo "$endpoint" | jq -r .secret)
 # Store the receiver's secret in .env (replacing any old one) so compose passes it in.
 grep -v '^WEBHOOK_SECRET=' .env > .env.tmp && mv .env.tmp .env
 echo "WEBHOOK_SECRET=$secret" >> .env
-docker compose up -d --no-deps receiver >/dev/null 2>&1
+# --wait: don't return until the receiver is back up, or the first delivery would hit it mid-restart.
+docker compose up -d --no-deps --wait receiver >/dev/null 2>&1
 
 printf 'RELAY_API_KEY=%s\nRELAY_ENDPOINT_ID=%s\n' "$api_key" "$endpoint_id" > .demo.env
 echo "Demo tenant ready. Endpoint $endpoint_id -> http://receiver:9000/webhook"
