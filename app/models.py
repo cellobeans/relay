@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -82,6 +82,13 @@ class DeliveryAttempt(Base):
         # concurrent replays). Its index (event_id first) also serves "deliveries for this event".
         UniqueConstraint(
             "event_id", "endpoint_id", "attempt_no", name="uq_delivery_attempts_event_endpoint_no"
+        ),
+        # Partial index: only pending rows are in it, so the worker's once-a-minute sweep for
+        # overdue attempts stays fast even with millions of finished rows in the table.
+        Index(
+            "ix_delivery_attempts_pending",
+            "created_at",
+            postgresql_where=text("status = 'pending'"),
         ),
     )
 

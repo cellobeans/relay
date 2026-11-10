@@ -70,3 +70,7 @@ class EventOut(BaseModel):
     idempotency_key: str
     created_at: datetime
     deliveries: list[DeliveryAttemptOut]
+
+
+class ReplayResult(BaseModel):
+    replayed: int = Field(description="How many dead deliveries were sent again")

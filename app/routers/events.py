@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import CurrentTenant
 from app.db import SessionDep
-from app.models import DeliveryAttempt, Endpoint, Event, Tenant
-from app.schemas import DeliveryAttemptOut, EventCreate, EventOut
+from app.models import DeliveryAttempt, DeliveryStatus, Endpoint, Event, Tenant
+from app.schemas import DeliveryAttemptOut, EventCreate, EventOut, ReplayResult
 from app.services.delivery import enqueue_delivery
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -88,7 +88,8 @@ async def create_event(
     await session.commit()
 
     # Enqueue only after the commit, so the worker never picks up a job for a row it can't see
-    # yet. Known gap: if Redis fails right here, the rows stay pending with no job.
+    # yet. If Redis fails right here, the rows stay pending and the worker's once-a-minute
+    # sweep (requeue_stuck in app/worker.py) enqueues them.
     for attempt in attempts:
         await enqueue_delivery(request.app.state.arq, attempt.id)
 
@@ -99,3 +100,49 @@ async def create_event(
 @router.get("/{event_id}")
 async def get_event(event_id: uuid.UUID, tenant: CurrentTenant, session: SessionDep) -> EventOut:
     return await _event_out(session, await _get_owned_event(session, tenant, event_id))
+
+
+@router.post("/{event_id}/replay")
+async def replay_event(
+    event_id: uuid.UUID, tenant: CurrentTenant, session: SessionDep, request: Request
+) -> ReplayResult:
+    """Send this event again to every endpoint whose delivery ended up dead."""
+    event = await _get_owned_event(session, tenant, event_id)
+
+    # Latest attempt per endpoint (Postgres DISTINCT ON keeps the first row of each group,
+    # and we sort newest first). Only endpoints whose latest attempt is dead get replayed.
+    latest = await session.scalars(
+        select(DeliveryAttempt)
+        .where(DeliveryAttempt.event_id == event.id)
+        .distinct(DeliveryAttempt.endpoint_id)
+        .order_by(DeliveryAttempt.endpoint_id, DeliveryAttempt.attempt_no.desc())
+    )
+    dead = [a for a in latest if a.status == DeliveryStatus.dead]
+    if not dead:
+        return ReplayResult(replayed=0)
+
+    # ON CONFLICT DO NOTHING + the unique (event, endpoint, attempt_no) constraint: if two
+    # replay requests race, only one creates each new attempt; the other quietly skips it.
+    new_ids = await session.scalars(
+        pg_insert(DeliveryAttempt)
+        .values(
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "event_id": a.event_id,
+                    "endpoint_id": a.endpoint_id,
+                    "attempt_no": a.attempt_no + 1,
+                    "status": DeliveryStatus.pending,
+                }
+                for a in dead
+            ]
+        )
+        .on_conflict_do_nothing(constraint="uq_delivery_attempts_event_endpoint_no")
+        .returning(DeliveryAttempt.id)
+    )
+    new_ids = list(new_ids)
+    await session.commit()
+
+    for attempt_id in new_ids:
+        await enqueue_delivery(request.app.state.arq, attempt_id)
+    return ReplayResult(replayed=len(new_ids))

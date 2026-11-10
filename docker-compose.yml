@@ -10,6 +10,8 @@ x-app: &app
     DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     REDIS_URL: redis://redis:6379/0
     ADMIN_TOKEN: ${ADMIN_TOKEN}
+    # Retry schedule in seconds. For a quick local demo: RETRY_DELAYS='[1,2,3,4]' docker compose up -d
+    RETRY_DELAYS: ${RETRY_DELAYS:-[5,30,120,600]}
   depends_on:
     postgres:
       condition: service_healthy

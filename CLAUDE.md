@@ -66,5 +66,8 @@ Dockerfile
 - `docker compose up --build -d --wait`: rebuild after code changes (the image copies the code, so edits need a rebuild)
 - `uv run alembic revision --autogenerate -m "<what changed>"`: write a migration from model changes (runs on the Mac so the file lands in the repo; read it before applying)
 - `docker compose exec api alembic upgrade head`: apply migrations
+- `./scripts/demo_setup.sh`: create a demo tenant + endpoint pointing at the mock receiver (API key goes to `.demo.env`)
+- `FAIL_RATE=50 docker compose up -d --no-deps receiver`: make the mock receiver fail 50% of requests
+- `RETRY_DELAYS='[1,2,3,4]' docker compose up -d`: retry after seconds instead of minutes (for demos)
 - `uv run pytest`: run tests
 - `uv run ruff check . && uv run ruff format .`: lint and format

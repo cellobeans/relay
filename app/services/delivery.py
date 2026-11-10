@@ -4,14 +4,16 @@ import json
 import logging
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from arq.connections import ArqRedis
-from sqlalchemy import select
+from sqlalchemy import func, select
 
+from app.config import settings
 from app.db import SessionLocal
 from app.models import DeliveryAttempt, DeliveryStatus, Endpoint, Event
+from app.services.backoff import max_attempts, retry_delay, should_retry
 from app.services.signing import sign
 
 log = logging.getLogger("relay.delivery")
@@ -29,7 +31,7 @@ async def enqueue_delivery(
     )
 
 
-async def deliver_attempt(attempt_id: uuid.UUID, http: httpx.AsyncClient) -> None:
+async def deliver_attempt(attempt_id: uuid.UUID, http: httpx.AsyncClient, arq: ArqRedis) -> None:
     # Step 1: load what we need, then release the DB connection before the slow network call,
     # so 50 in-flight deliveries don't hold 50 database connections for up to 10s each.
     async with SessionLocal() as session:
@@ -79,23 +81,76 @@ async def deliver_attempt(attempt_id: uuid.UUID, http: httpx.AsyncClient) -> Non
             error = f"{type(exc).__name__}: {exc}"[:500]
         latency_ms = int((time.perf_counter() - start) * 1000)
 
-    # Step 3: record the outcome.
+    # Step 3: record the outcome and, if it failed, decide: retry later, or give up (dead).
+    retry: DeliveryAttempt | None = None
+    delay = 0.0
     async with SessionLocal() as session:
         attempt = await session.get(DeliveryAttempt, attempt_id)
         if attempt is None or attempt.status != DeliveryStatus.pending:
             return
+        now = datetime.now(UTC)
         attempt.response_code = response_code
         attempt.error = error
         attempt.latency_ms = latency_ms
-        attempt.completed_at = datetime.now(UTC)
-        attempt.status = DeliveryStatus.succeeded if error is None else DeliveryStatus.failed
+        attempt.completed_at = now
+
+        delays = settings.retry_delays
+        if error is None:
+            attempt.status = DeliveryStatus.succeeded
+        elif (
+            endpoint.active
+            and should_retry(response_code)
+            and attempt.attempt_no < max_attempts(delays)
+        ):
+            attempt.status = DeliveryStatus.failed
+            delay = retry_delay(attempt.attempt_no, delays)
+            # The retry is its own row, so every attempt stays in the history.
+            retry = DeliveryAttempt(
+                event_id=attempt.event_id,
+                endpoint_id=attempt.endpoint_id,
+                attempt_no=attempt.attempt_no + 1,
+                next_retry_at=now + timedelta(seconds=delay),
+            )
+            session.add(retry)
+        else:
+            attempt.status = DeliveryStatus.dead
         await session.commit()
 
+    if retry is not None:
+        # A deferred job: arq holds it in Redis and runs it once `delay` seconds have passed.
+        await enqueue_delivery(arq, retry.id, defer_by=delay)
+
     log.info(
-        "attempt %s for event %s -> %s (%s, %d ms)",
+        "attempt %s (#%d) for event %s -> %s (%s, %d ms)%s",
         attempt_id,
+        attempt.attempt_no,
         event.id,
         attempt.status,
         response_code or error,
         latency_ms,
+        f", retry in {delay:.1f}s" if retry else "",
     )
+
+
+async def requeue_stuck_attempts(arq: ArqRedis) -> int:
+    """Safety net: enqueue pending attempts that are overdue but have no job.
+
+    That happens if Redis was unreachable just after a row was committed, or if Redis lost its
+    data. Re-enqueueing one that does have a job is harmless (same job id, so arq ignores it).
+    """
+    grace = datetime.now(UTC) - timedelta(minutes=1)
+    async with SessionLocal() as session:
+        ids = await session.scalars(
+            select(DeliveryAttempt.id)
+            .where(
+                DeliveryAttempt.status == DeliveryStatus.pending,
+                func.coalesce(DeliveryAttempt.next_retry_at, DeliveryAttempt.created_at) < grace,
+            )
+            .limit(1000)
+        )
+        ids = list(ids)
+    for attempt_id in ids:
+        await enqueue_delivery(arq, attempt_id)
+    if ids:
+        log.warning("re-enqueued %d overdue pending attempts", len(ids))
+    return len(ids)
