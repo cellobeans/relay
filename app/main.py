@@ -5,7 +5,7 @@ from redis.asyncio import Redis
 
 from app.config import settings
 from app.db import engine
-from app.routers import endpoints, health, tenants
+from app.routers import endpoints, events, health, tenants
 
 
 @asynccontextmanager
@@ -22,3 +22,4 @@ app = FastAPI(title="Relay", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(tenants.router)
 app.include_router(endpoints.router)
+app.include_router(events.router)

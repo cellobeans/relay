@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
@@ -40,3 +40,33 @@ class EndpointCreated(EndpointOut):
     """Same as EndpointOut plus the signing secret, returned only from the create call."""
 
     secret: str
+
+
+class EventCreate(BaseModel):
+    type: EventType
+    payload: dict[str, Any]
+
+
+class DeliveryAttemptOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    endpoint_id: uuid.UUID
+    attempt_no: int
+    status: str
+    response_code: int | None
+    error: str | None
+    latency_ms: int | None
+    next_retry_at: datetime | None
+    created_at: datetime
+
+
+class EventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    type: str
+    payload: dict[str, Any]
+    idempotency_key: str
+    created_at: datetime
+    deliveries: list[DeliveryAttemptOut]
