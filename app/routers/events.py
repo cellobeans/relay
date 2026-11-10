@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 from sqlalchemy import any_, select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -114,7 +115,7 @@ async def replay_event(
     latest = await session.scalars(
         select(DeliveryAttempt)
         .where(DeliveryAttempt.event_id == event.id)
-        .distinct(DeliveryAttempt.endpoint_id)
+        .ext(distinct_on(DeliveryAttempt.endpoint_id))
         .order_by(DeliveryAttempt.endpoint_id, DeliveryAttempt.attempt_no.desc())
     )
     dead = [a for a in latest if a.status == DeliveryStatus.dead]

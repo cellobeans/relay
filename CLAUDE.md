@@ -69,5 +69,6 @@ Dockerfile
 - `./scripts/demo_setup.sh`: create a demo tenant + endpoint pointing at the mock receiver (API key goes to `.demo.env`)
 - `FAIL_RATE=50 docker compose up -d --no-deps receiver`: make the mock receiver fail 50% of requests
 - `RETRY_DELAYS='[1,2,3,4]' docker compose up -d`: retry after seconds instead of minutes (for demos)
-- `uv run pytest`: run tests
+- `uv run pytest`: run all tests (integration tests need `docker compose up -d postgres redis`; they use a separate `relay_test` DB and Redis db 15)
+- `uv run pytest tests/unit`: unit tests only (no services needed)
 - `uv run ruff check . && uv run ruff format .`: lint and format
